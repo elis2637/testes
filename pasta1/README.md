@@ -1,214 +1,202 @@
-# consultoria_driva-tech_powerbi (Em Construção)
-<br>
+# 🎓 Data Mart de Acompanhamento de Egressos
 
-# Sumário
-1. Contexto
-2. Preview dashboard
-3. Origem dos dados
-4. ETL
-5. Criação da tabela Calendário
-6. Relacionamentos (Star Schema)
-7. Hipóteses
-8. Clusterização com Machine Learning (K-Means)
-9. Páginas do Dashboard + Explicação dos gráficos
-10. Algumas Fórmulas utilizadas nas medidas criadas
-11. Validação de hipóteses
-12. Insights e Recomendações
+![Databricks](https://img.shields.io/badge/Databricks-FF3621?style=for-the-badge&logo=Databricks&logoColor=white)
+![Delta Lake](https://img.shields.io/badge/Delta_Lake-000000?style=for-the-badge&logo=delta&logoColor=white)
+![PySpark](https://img.shields.io/badge/PySpark-E25A1C?style=for-the-badge&logo=apachespark&logoColor=white)
+![SQL](https://img.shields.io/badge/SQL-4479A1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Architecture](https://img.shields.io/badge/Architecture-Medallion-blue?style=for-the-badge)
 
-# 1. Contexto
-A varejista de moda, Arfex, busca entender melhor o desempenho de suas lojas físicas para otimizar estratégias de distribuição de produtos e promoções, visando aumento das vendas e melhoria na satisfação do cliente. O cliente forneceu dados das vendas das lojas e dados demográficos dos consumidores.<br>
-<br>
+## 📌 Visão Geral do Projeto
 
-**Objetivo**:
-1. Examinar os dados para identificar padrões de vendas e diferenças regionais;<br>
-2. Aplicar técnicas básicas de segmentação para identificar diferentes perfis de consumidores. Analisar suas preferências de compra para entender quais produtos ou promoções são mais eficazes para cada segmento;<br>
-3. Elaborar recomendações práticas sobre como ajustar a distribuição de produtos e as estratégias de marketing para melhor atender aos diferentes segmentos de clientes, baseando-se nos insights extraídos das análises anteriores.<br>
+Este repositório contém a implementação do **Data Mart de Acompanhamento de Egressos**, desenvolvido utilizando a **Arquitetura Medallion** sobre a plataforma **Databricks Delta Lake**. O objetivo principal é estruturar, transformar e disponibilizar dados consolidados sobre a trajetória acadêmica, demográfica e profissional dos ex-alunos da instituição.
 
-# 2. Preview Dashboard
-<img width="1245" height="694" alt="image" src="https://github.com/user-attachments/assets/6b232908-9a7a-47a5-b52e-c6a80475e1f5" />
-
-
-# 3. ETL
-Carregamento das planilhas normalizadas em Power BI e Transformação em Power Query para limpeza, criação de novas colunas, medidas e criação da tabela calendário. Na sessão 9 compartilho algumas das fórmulas DAX que utilizei o objetivo:<br>
-
-## Origem dos Dados: 
-Fictícios. Gerados usando IA, porém seguindo modelo de consultoria para aplicação de conceitos e estudo.<br>
-
-## Esquema de Dados das Tabelas Originais:
-<img width="1074" height="431" alt="image" src="https://github.com/user-attachments/assets/c5a95d55-59ca-4095-9d50-0f7f7ccb9f46" />
-<br>
-
-# 4. Criação da tabela Calendário
-Esta fórmula DAX para a criação da tabela calendário é uma melhor opção do que o Auto Date/Time do Power BI, pois prioriza a performance e a capacidade de análise avançada (Time Intelligence) no projeto, evitando o inchaço (model bloat) que a fórmula automática Auto Date/Time geraria ao criar diversas tabelas ocultas de data para cada coluna de data no projeto.
-
-DIM_Calendario = 
-ADDCOLUMNS (
-    CALENDAR (MIN(FATO_Vendas[VENDAS.DATA_VENDA]), MAX(FATO_Vendas[VENDAS.DATA_VENDA])),
-    "Ano", YEAR([Date]),
-    "Trimestre Num", QUARTER([Date]),
-    "Trimestre", "T" & QUARTER([Date]),
-    "Mês Nome", FORMAT([Date], "MMMM"),
-    "Mês Num/Ano", FORMAT([Date], "YYYY-MM"), // Importante para ordenação
-    "Dia da Semana Nome", FORMAT([Date], "dddd"),
-    "Dia da Semana Num", WEEKDAY([Date], 2) // 1=Segunda, 7=Domingo
-)
-
-**Objetivo na Análise**:<br>
-O principal objetivo é permitir realizar Análises Temporais Avançadas (Time Intelligence) de forma correta e flexível, pois possibilita:<br>
-- Agrupamento: Permite agrupar vendas por Mês, Dia da Semana, Trimestre, ou Dia Útil/Fim de Semana.<br>
-- Comparação: É o motor para métricas complexas como "Vendas Mês Anterior" ou "Vendas Ano Passado", que exigem uma sequência de datas ininterrupta.<br>
-- Filtro: Permite filtrar todas as suas métricas (Vendas, Ticket Médio, etc.) usando atributos de tempo (como "Mês", "Dia da Semana") em vez de usar apenas a data bruta.<br>
-
-# 5. Relacionamentos
-<img width="1129" height="720" alt="image" src="https://github.com/user-attachments/assets/f3026842-e92a-457e-82d9-cdb4787b5f71" />
-
-# 6. Clusterização com Machine Learning (K-Means)
-import pandas as pd
-
-try:
-    df = dataset.copy()
-
-    # 1. LIMPEZA DE CABEÇALHOS (Remove espaços extras e coloca tudo em maiúsculo)
-    # Isso resolve se estiver " NOME_FILIAL" ou "nome_filial"
-    df.columns = [col.strip().upper() for col in df.columns]
-
-    # Verifica se a coluna de filial existe (ajuste 'NOME_FILIAL' se o seu nome for diferente, ex: 'LOJA')
-    col_filial = 'NOME_FILIAL' 
-    
-    if col_filial not in df.columns:
-        # Se não achar, tenta procurar uma coluna que contenha "FILIAL" no nome
-        possiveis = [c for c in df.columns if 'FILIAL' in c]
-        if possiveis:
-            col_filial = possiveis[0] # Pega a primeira que achar
-        else:
-            raise KeyError(f"Coluna de Filial não encontrada. Colunas disponíveis: {list(df.columns)}")
-
-    # 2. AUTO-CRUZAMENTO
-    # Usa a variável col_filial que encontramos acima
-    df_merge = pd.merge(df, df, on=['ID_VENDA', 'PERFIL_CLIENTE', col_filial])
-
-    # 3. FILTRO E RANKING
-    df_pares = df_merge[df_merge['NOME_PRODUTO_x'] < df_merge['NOME_PRODUTO_y']]
-
-    ranking = df_pares.groupby(['PERFIL_CLIENTE', col_filial, 'NOME_PRODUTO_x', 'NOME_PRODUTO_y']).size().reset_index(name='Qtd_Vendas_Juntas')
-
-    ranking.rename(columns={
-        'NOME_PRODUTO_x': 'Produto_A',
-        'NOME_PRODUTO_y': 'Produto_B'
-    }, inplace=True)
-
-    ranking.sort_values('Qtd_Vendas_Juntas', ascending=False, inplace=True)
-
-    df_final = ranking
-
-except Exception as e:
-    # Isso cria uma tabela de erro legível no Power BI se algo der errado
-    df_final = pd.DataFrame({'Erro': [str(e)]})
-    
-# 7. Hipóteses
-1. O ticket médio dos clusters é expressivamente diferente, e clientes ouro gastam mais que os outros por pedido.
-2. Cada cluster compra produtos e combos diferentes, portanto, a estratégia de mix e marketing deve ser diferente para cada cluster
-3. Clientes Ouro compram mais vezes que clientes Prata e Bronze
-4. Clientes Bronze são clientes inativos (com mais de 30 dias sem comprar em média)
-5. Clientes Bronze compram mais produtos em promoção do que os outros clusters
-6. Cada cluster compra essencialmente o mesmo mix de produtos independente da filial
-7. Algumas filiais possuem mais clientes ouro do que outros, podendo se beneficiar de ter produtos mais voltados para este público
-8. Os melhores dias de vendas para todas as filiais são: Sex, Sáb e Domingo, e estes são os dias mais importantes de se ter mais funcionários e estoque garantido em loja
-9. As filiais que faturam mais, vendem maior quantidade e não produtos mais caros, portanto, o foco deve ser recorrência e fidelidade
-10. Não há variação expressiva entre a origem dos clientes entre as filiais, portanto, a empresa não precisa ter estratégias diferentes com relação à isso
-11. *****NÃO TESTADA***** O mix de produtos comprados por clientes de diferentes origens é muito parecido, portanto, é indiferente para estratégia de mix do PDV
-
-# 8. Páginas do Dashboard + Explicação dos gráficos (em construção)
-<img width="1245" height="692" alt="image" src="https://github.com/user-attachments/assets/8d97cfb7-805f-4946-bf72-6d6927b7ecb5" /><br>
-<br>
-<br>
-<img width="1250" height="697" alt="image" src="https://github.com/user-attachments/assets/8d34858e-b2ad-44dc-b789-4ddaa1951a0d" /><br>
-<br>
-<br>
-<img width="1263" height="703" alt="image" src="https://github.com/user-attachments/assets/f29ea16b-e47c-467b-9f5a-2c1f11c6b20b" /><br>
-<br>
-<br>
-<img width="1268" height="703" alt="image" src="https://github.com/user-attachments/assets/458d87db-76dc-4dfb-a7f1-55f1e9bb15a8" /><br>
-<br>
-<br>
-
-# 9. Algumas Fórmulas utilizadas nas medidas criadas
-#### B. Agregação por Cliente (Proxy LTV)
-Esta fórmula é uma Coluna Calculada na tabela DIM_Clientes e é a base para a segmentação de clientes por Lifetime Value (LTV). Ela Resolve o problema de agregar dados transacionais (muitas linhas na FATO) em uma tabela de dimensão (uma linha por cliente), usando a técnica de Context Transition (CALCULATE) e ignora/aplica filtros (FILTER(ALL())) para garantir que o gasto total de cada cliente seja preciso.
-```
-VALOR_GASTO_CLIENTE =
-CALCULATE(
-    [VALOR_VENDA_TOTAL],
-    FILTER(
-        ALL('FATO_Vendas'),
-        'FATO_Vendas'[VENDAS.ID_CLIENTE] = 'DIM_Clientes'[ID_CLIENTE]
-    )
-)
-```
-**Objetivo na Análise**:<br>
-Esta fórmula permite medir o valor monetário total que cada cliente contribuiu para o negócio, desde o início dos dados, sem interferências de filtros gerais.<br>
-<br>
-
-#### C. Benchmark Dinâmico (Média Geral Ajustável)
-Esta métrica é essencial para criar a linha de referência nos gráficos de Faturamento por Filial e Ticket Médio. Ela calcula a média da rede, mas tem a inteligência de se ajustar a filtros de data ou cliente (tornando-a dinâmica).<br>
-```
-MEDIA_FATURAMENTO_GERAL_FILIAL_DINAMICA =
-VAR FaturamentoGeral = CALCULATE([VALOR_VENDA_TOTAL], ALL(DIM_Filiais))
-VAR NumFiliais = COUNTROWS(ALL(DIM_Filiais))
-RETURN
-    DIVIDE(FaturamentoGeral, NumFiliais)
-```
-**Objetivo na Análise**:<br>
-Esta métrica permite avaliar o desempenho das filiais em relação à média de faturamento que cada filial deveria atingir no período e contexto filtrado (se o usuário filtrou por "Novembro", a média de novembro é calculada).<br>
-<br>
-
-# 10. Validação de hipóteses (em construção)
-
-# 11. Insights e Recomendações (em construção)
-
-# Trecho do projeto antigo (em construção, pode ignorar daqui pra baixo)
+Com a estrutura dimensional em **Esquema Estrela (Star Schema)**, equipes de Business Intelligence e Analytics podem responder a perguntas estratégicas como:
+- Qual é a taxa de empregabilidade e a renda estimada dos egressos por curso e modalidade?
+- Qual o nível de satisfação (NPS) e engajamento da comunidade Alumni?
+- Quais egressos apresentam alto potencial de captação para programas de Pós-Graduação?
+- Qual é a distribuição geográfica e a inserção no mercado de trabalho (Setor Público, Privado, Terceiro Setor)?
 
 ---
 
+## 🏗️ Arquitetura de Dados (Medallion Architecture)
 
+O pipeline de dados segue o padrão Medallion em 3 camadas no banco de dados `mvp_eng_dados`:
+
+```text
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────────────────┐
+│  Camada BRONZE  │  ───> │  Camada SILVER  │  ───> │         Camada GOLD         │
+│  (Raw Ingestion)│       │  (Cleansed)     │       │   (Data Mart Dimensional)   │
+└─────────────────┘       └─────────────────┘       └─────────────────────────────┘
+  • Ingestão raw            • Limpeza e validação     • Esquema Estrela (Star Schema)
+  • Logs e pesquisas        • Padronizações           • Fato: fato_egressos
+  • Dados de cursos         • Deduplicação            • Dimensões: dim_egresso,
+                                                        dim_curso, dim_emprego
+```
+
+1. **Bronze (Raw):** Ingestão dos dados brutos capturados de formulários de acompanhamento e sistemas acadêmicos.
+2. **Silver (Cleansed/Refined):** Tabelas higienizadas (`silver.dataset_egressos` e `silver.dataset_cursos`), com aplicação de regras de sanidade (ex: validação de idade entre 16 e 100 anos, eliminação de valores negativos em renda).
+3. **Gold (Curated / Analytics):** Modelo dimensional em esquema estrela no database `mvp_eng_dados.gold`, otimizado para consumo por ferramentas analíticas.
 
 ---
 
+## 📐 Modelo Dimensional (Esquema Estrela)
 
+```text
+                       ┌──────────────────────┐
+                       │      dim_curso       │
+                       ├──────────────────────┤
+                       │ PK  id_curso         │
+                       │     nome_curso       │
+                       │     area_conhecimento│
+                       │     duracao_semestres│
+                       │     mensalidade_base │
+                       │     modalidade_...   │
+                       └──────────┬───────────┘
+                                  │
+                                  │ 1:N
+┌──────────────────────┐          ▼          ┌──────────────────────┐
+│     dim_egresso      │   ┌──────────────┐  │     dim_emprego      │
+├──────────────────────┤   │ fato_egressos│  ├──────────────────────┤
+│ PK  id_egresso       ├──>│──────────────│<──┤ PK  id_emprego       │
+│     idade_egresso    │1:N│ FK id_egresso│1:N│     nivel_cargo      │
+│     uf_residencia    │   │ FK id_curso  │  │     tipo_empresa     │
+│     bolsista_grad... │   │ FK id_emprego│  └──────────────────────┘
+└──────────────────────┘   │    renda_... │
+                           │    satisf... │
+                           └──────────────┘
+```
 
 ---
 
-## Dicas de Ferramenta:
+## 📖 Dicionário Lógico de Dados (`mvp_eng_dados.gold`)
 
+### 1. Tabela Fato: `fato_egressos`
+Consolida as métricas operacionais, financeiras e comportamentais do acompanhamento de egressos.
 
+| Nome da Coluna | Tipo de Dado | Chave | Nulo? | Origem (Silver) | Descrição / Regras de Negócio |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **`id_egresso`** | `INT` | **FK** | Não | `silver.dataset_egressos` | Chave estrangeira para a dimensão `dim_egresso`. |
+| **`id_curso`** | `INT` | **FK** | Não | `silver.dataset_egressos` | Chave estrangeira para a dimensão `dim_curso`. |
+| **`id_emprego`** | `STRING` | **FK** | Não | Calculado (Hash) | Chave estrangeira (MD5) para a dimensão `dim_emprego`. |
+| **`dt_ultimo_contato`** | `TIMESTAMP` | - | Sim | `silver.dataset_egressos` | Data e hora em que foi realizado o último contato de acompanhamento. |
+| **`renda_mensal_estimada`** | `DECIMAL(10,2)` | - | Sim | `silver.dataset_egressos` | Renda mensal estimada do egresso em R$. Valores negativos são anulados. |
+| **`satisfacao_graduacao_nps`** | `INT` | - | Sim | `silver.dataset_egressos` | Nota de satisfação NPS concedida pelo egresso (0 a 10). |
+| **`categoria_nps`** | `STRING` | - | Sim | Derivado (Regra) | Classificação NPS: 'Promotor' (≥ 9), 'Neutro' (7 ou 8), 'Detrator' (≤ 6). |
+| **`engajamento_alumni_score`** | `INT` | - | Sim | `silver.dataset_egressos` | Pontuação de engajamento do ex-aluno na rede Alumni (0 a 100). |
+| **`potencial_matricula_pos`** | `INT` | - | Sim | `silver.dataset_egressos` | Flag binário (1 = Alto Potencial em Pós-graduação, 0 = Sem Interesse). |
+| **`meses_desde_formacao`** | `INT` | - | Sim | `silver.dataset_egressos` | Quantidade de meses decorridos entre a colação de grau e o acompanhamento. |
+| **`faixa_meses_formacao`** | `STRING` | - | Sim | Derivado (Regra) | Agrupamento temporal: '0-12m', '13-24m', '25-36m', '37-48m', '49-60m' ou '>60m'. |
 
-# Técnica de Análise:
-Análise Exploratória no Dashboard em Power BI, utilizando recursos estatísticos para observar padrões e tendências para geração de insights<br>
+---
 
-# Insights extraídos:
-[Imagens da apresentação] (Em construção)<br>
-<br>
+### 2. Tabela Dimensão: `dim_egresso`
+Contém o perfil demográfico individualizado do egresso.
 
-# Análises possíveis caso eu tivesse mais tempo:
+| Nome da Coluna | Tipo de Dado | Chave | Nulo? | Origem (Silver) | Descrição / Regras de Negócio |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **`id_egresso`** | `INT` | **PK** | Não | `silver.dataset_egressos` | Identificador único do egresso (Chave Primária de Negócio). |
+| **`idade_egresso`** | `INT` | - | Sim | `silver.dataset_egressos` | Idade atual em anos (filtrado no intervalo de 16 a 100 anos). |
+| **`uf_residencia`** | `STRING` | - | Sim | `silver.dataset_egressos` | Estado de residência do egresso (Sigla padronizada em maiúsculas: SP, RJ, MG...). |
+| **`bolsista_graduacao`** | `INT` | - | Sim | `silver.dataset_egressos` | Indicador binário de bolsa de estudo durante o curso (1 = Bolsista, 0 = Não Bolsista). |
 
-### 1. Segmentação RFM (Recência, Frequência e Valor Monetário):
-**1.1. Monetário   (M)**: Permitiria uma classificação mais precisa de LTV (Lifetime Value);<br>
-**1.2. Frequência  (F)**: Ajudaria a distinguir o "campeão" (muitas compras, alto gasto) do "cliente premium" (poucas compras, altíssimo gasto);<br>
-**1.3. Recência    (R)**: Nesse caso não seria útil, pois temos dados transacionais somente de um período de 3 meses.<br>
-<br>
+---
 
-### 2. Análises Estatísticas:
+### 3. Tabela Dimensão: `dim_curso`
+Catálogo de cursos de graduação e seus atributos acadêmicos e financeiros.
 
-#### 2.1. Análise de Cesta de Mercado (Market Basket Analysis - MBA)
-**Método**: Análise de Regras de Associação (Conceitualmente, Algoritmo Apriori).<br>
-**Objetivo**: Identificar grupos de produtos que são frequentemente comprados juntos.<br>
-**Ação**: Calcular a Apoio (frequência de ocorrência conjunta) e a Confiança (probabilidade de comprar o item B se o item A foi comprado).<br>
-**Insight**: "Se um cliente compra uma Calça Jeans, ele compra Meias Coloridas em 60% das vezes." Isso informa o cross-selling no PDV e o bundling (pacotes) de produtos.<br>
-<br>
+| Nome da Coluna | Tipo de Dado | Chave | Nulo? | Origem (Silver) | Descrição / Regras de Negócio |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **`id_curso`** | `INT` | **PK** | Não | `silver.dataset_cursos` | Identificador único do curso (Chave Primária). |
+| **`nome_curso`** | `STRING` | - | Não | `silver.dataset_cursos` | Nome do curso de graduação (padronizado em maiúsculas sem espaços extras). |
+| **`area_conhecimento`** | `STRING` | - | Sim | `silver.dataset_cursos` | Área acadêmica (Tecnologia, Exatas, Humanas, Saúde, etc.). |
+| **`duracao_semestres`** | `INT` | - | Sim | `silver.dataset_cursos` | Duração regular do curso em semestres (valores > 0). |
+| **`mensalidade_base`** | `DECIMAL(10,2)` | - | Sim | `silver.dataset_cursos` | Mensalidade base de referência em reais (R$). |
+| **`modalidade_graduacao`** | `STRING` | - | Sim | `silver.dataset_egressos` | Modalidade de ensino ofertada: 'PRESENCIAL', 'EAD' ou 'HÍBRIDO'. |
 
-#### 2.2. Análise de Elasticidade-Preço da Demanda (PED)
-**Método**: Regressão (ou análise de correlação segmentada);<br>
-**Objetivo**: Medir a sensibilidade do cliente ao desconto;<br>
-**Ação**: Analisar como o volume de venda (QUANTIDADE) de um produto específico muda em relação ao desconto concedido (VALOR_UNITARIO_VENDA_PRODUTO vs PRECO_TABELA);<br>
-**Insight**: Identificar produtos que são elásticos (respondem muito bem ao desconto) e inelásticos (vendem a mesma quantidade, mesmo sem desconto, permitindo maior margem de lucro).<br>
-<br>
+---
+
+### 4. Tabela Dimensão: `dim_emprego`
+Dimensão categorizada que mapeia o perfil profissional no mercado de trabalho.
+
+| Nome da Coluna | Tipo de Dado | Chave | Nulo? | Origem (Silver) | Descrição / Regras de Negócio |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **`id_emprego`** | `STRING` | **PK** | Não | Calculado (Hash) | Surrogate Key gerada via Hash MD5 de `nivel_cargo || '||' || tipo_empresa`. |
+| **`nivel_cargo`** | `STRING` | - | Sim | `silver.dataset_egressos` | Nível hierárquico: 'ESTÁGIO', 'JÚNIOR', 'PLENO', 'SÊNIOR', 'GESTÃO', 'SEM VÍNCULO'. |
+| **`tipo_empresa`** | `STRING` | - | Sim | `silver.dataset_egressos` | Segmento empregador: 'INICIATIVA PRIVADA', 'SETOR PÚBLICO', 'TERCEIRO SETOR', 'DESEMPREGADO'. |
+
+---
+
+## ⚡ Regras de Negócio & Transformações
+
+1. **Geração de Surrogate Key (`dim_emprego`):**
+   - Utilização de algoritmo Hash MD5 concatenando os atributos para garantir idempotência:
+     ```sql
+     md5(concat(coalesce(nivel_cargo, 'N/A'), '||', coalesce(tipo_empresa, 'N/A'))) AS id_emprego
+     ```
+
+2. **Categorização do NPS:**
+   - `Promotor`: Notas 9 e 10
+   - `Neutro`: Notas 7 e 8
+   - `Detrator`: Notas 0 a 6
+
+3. **Agrupamento Temporal (`faixa_meses_formacao`):**
+   - Intervalos: `0-12m`, `13-24m`, `25-36m`, `37-48m`, `49-60m` e `>60m`.
+
+4. **Tratamento de Anomalias:**
+   - Rendas mensais negativas são anuladas na camada Silver.
+   - Idades fora do intervalo biológico de 16 a 100 anos são desconsideradas.
+
+---
+
+## 🚀 Otimizações de Desempenho (Databricks Delta Lake)
+
+Para garantir respostas rápidas nas consultas analíticas e nos dashboards de BI, o Data Mart aplica **Z-Ordering** nas tabelas físicas:
+
+```sql
+-- Otimização da Tabela Fato
+OPTIMIZE mvp_eng_dados.gold.fato_egressos 
+ZORDER BY (id_curso, id_egresso);
+
+-- Otimização das Tabelas Dimensão
+OPTIMIZE mvp_eng_dados.gold.dim_curso ZORDER BY (id_curso);
+OPTIMIZE mvp_eng_dados.gold.dim_egresso ZORDER BY (id_egresso);
+```
+
+---
+
+## 📂 Estrutura do Repositório
+
+```text
+├── config/
+│   └── delta_config.json          # Configurações de ambiente e conexões Databricks
+├── docs/
+│   ├── dicionario_de_dados.md     # Documentação detalhada dos metadados
+│   └── modelo_dimensional.png     # Diagrama ER em alta resolução
+├── notebooks/
+│   ├── 01_bronze_ingestion.py     # Carga dos dados brutos
+│   ├── 02_silver_cleansing.py     # Tratamento, limpeza e filtros de sanidade
+│   └── 03_gold_star_schema.py     # Carga do modelo dimensional e Z-Ordering
+├── sql/
+│   ├── ddl_gold_tables.sql        # Scripts DDL de criação das tabelas
+│   └── analytical_queries.sql     # Queries analíticas de exemplo para BI
+├── README.md                      # Documentação principal do repositório
+└── requirements.txt               # Dependências do projeto PySpark / Databricks
+```
+
+---
+
+## 🛠️ Como Executar
+
+### Pré-requisitos
+- **Databricks** (Runtime 11.3 LTS ou superior)
+- **Delta Lake** ativado
+- Permissões de escrita no catálogo/schema `mvp_eng_dados`
+
+### Passo a Passo
+1. Clone este repositório no seu Databricks Workspace / Repos:
+   ```bash
+   git clone https://github.com/usuario/data-mart-egressos.git
+   ```
+2. Execute o notebook `notebooks/01_bronze_ingestion.py` para realizar a ingestão.
+3. Execute o notebook `notebooks/02_silver_cleansing.py` para higienização dos dados.
+4. Execute o notebook `notebooks/03_gold_star_schema.py` para popular a camada Gold e executar a otimização **Z-Ordering**.
